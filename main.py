@@ -69,6 +69,10 @@ async def load_state():
             if r.status_code == 200:
                 import base64
                 data = json.loads(base64.b64decode(r.json()["content"]).decode())
+                # تبدیل protocol قدیمی به protocols
+                for uid, link in data.get("links", {}).items():
+                    if "protocol" in link and "protocols" not in link:
+                        link["protocols"] = [link.pop("protocol")]
                 LINKS.update(data.get("links", {}))
                 SUBS.update(data.get("subs", {}))
                 RESELLERS.update(data.get("resellers", {}))
@@ -82,6 +86,9 @@ async def load_state():
         if DATA_FILE.exists():
             async with aiofiles.open(DATA_FILE, "r", encoding="utf-8") as f:
                 data = json.loads(await f.read())
+            for uid, link in data.get("links", {}).items():
+                if "protocol" in link and "protocols" not in link:
+                    link["protocols"] = [link.pop("protocol")]
             LINKS.update(data.get("links", {}))
     except: pass
 
@@ -143,7 +150,7 @@ SESSION_TTL = 60 * 60 * 24 * 7
 def hash_password(pw: str) -> str:
     return hashlib.sha256(f"{pw}{CONFIG['secret']}".encode()).hexdigest()
 
-AUTH = {"password_hash": hash_password(os.environ.get("ADMIN_PASSWORD", "admin"))}  # ← تغییر به admin
+AUTH = {"password_hash": hash_password(os.environ.get("ADMIN_PASSWORD", "admin"))}
 SESSIONS: dict = {}
 SESSIONS_LOCK = asyncio.Lock()
 
@@ -239,7 +246,7 @@ def _format_vless_uri(uuid: str, ip: str, port: int, remark: str, protocol: str,
 
 def generate_vless_links(link_data: dict, uuid: str, host: str) -> list[str]:
     links = []
-    protocol = link_data.get("protocol", DEFAULT_PROTOCOL)
+    protocols = link_data.get("protocols", [DEFAULT_PROTOCOL])
     is_personal = link_data.get("is_personal", False)
     
     ips = link_data.get("ips") or []
@@ -255,8 +262,9 @@ def generate_vless_links(link_data: dict, uuid: str, host: str) -> list[str]:
         port = 443
 
     for ip in ips:
-        remark = f"VaslZone-{link_data['label']}-{ip}" if len(ips) > 1 else f"VaslZone-{link_data['label']}"
-        links.append(_format_vless_uri(uuid, ip, port, remark, protocol, host))
+        for proto in protocols:
+            remark = f"VaslZone-{link_data['label']}-{proto}" if len(ips) > 1 or len(protocols) > 1 else f"VaslZone-{link_data['label']}"
+            links.append(_format_vless_uri(uuid, ip, port, remark, proto, host))
     return links
 
 def uptime() -> str:
@@ -312,7 +320,7 @@ async def ensure_default_link():
                     "label": "لینک پیش‌فرض", "limit_bytes": 0, "used_bytes": 0,
                     "created_at": datetime.now().isoformat(), "active": True,
                     "expires_at": None, "note": "", "is_default": True, "sub_id": None,
-                    "protocol": DEFAULT_PROTOCOL, "ips": [], "port": None, "is_personal": False
+                    "protocols": [DEFAULT_PROTOCOL], "ips": [], "port": None, "is_personal": False
                 }
     asyncio.create_task(save_state())
     _default_link_created = True
@@ -356,7 +364,6 @@ async def subscription_single(uuid: str, request: Request):
         from public_page import get_single_sub_page_html
         return HTMLResponse(content=get_single_sub_page_html(uuid))
 
-    
     host = get_host()
     lines = generate_vless_links(link, uuid, host)
     content = base64.b64encode("\n".join(lines).encode()).decode()
@@ -615,8 +622,16 @@ async def create_link(request: Request):
     port = int(body.get("port")) if body.get("port") else None
     is_personal = bool(body.get("is_personal", False))
     sub_id = body.get("sub_id")
-    protocol = body.get("protocol") or DEFAULT_PROTOCOL
-    if protocol not in PROTOCOLS: protocol = DEFAULT_PROTOCOL
+    
+    # دریافت پروتکل‌ها (لیست)
+    protocols = body.get("protocols")
+    if not protocols:
+        proto = body.get("protocol", DEFAULT_PROTOCOL)
+        protocols = [proto]
+    # اعتبارسنجی
+    protocols = [p for p in protocols if p in PROTOCOLS]
+    if not protocols:
+        protocols = [DEFAULT_PROTOCOL]
 
     if s["role"] == "reseller":
         await check_reseller_capacity(s["user_id"], limit_bytes)
@@ -632,7 +647,7 @@ async def create_link(request: Request):
             "label": label, "limit_bytes": limit_bytes, "used_bytes": 0,
             "created_at": datetime.now().isoformat(), "active": True,
             "expires_at": expires_at, "note": note, "is_default": False,
-            "sub_id": sub_id, "protocol": protocol, "ips": ips, "port": port,
+            "sub_id": sub_id, "protocols": protocols, "ips": ips, "port": port,
             "is_personal": is_personal, "creator_id": s["user_id"]
         }
         if sub_id:
@@ -664,8 +679,14 @@ async def create_links_bulk(request: Request):
     port = int(body.get("port")) if body.get("port") else None
     is_personal = bool(body.get("is_personal", False))
     sub_id = body.get("sub_id")
-    protocol = body.get("protocol") or DEFAULT_PROTOCOL
-    if protocol not in PROTOCOLS: protocol = DEFAULT_PROTOCOL
+    
+    protocols = body.get("protocols")
+    if not protocols:
+        proto = body.get("protocol", DEFAULT_PROTOCOL)
+        protocols = [proto]
+    protocols = [p for p in protocols if p in PROTOCOLS]
+    if not protocols:
+        protocols = [DEFAULT_PROTOCOL]
 
     if s["role"] == "reseller":
         await check_reseller_capacity(s["user_id"], limit_bytes * count)
@@ -684,7 +705,7 @@ async def create_links_bulk(request: Request):
                 "label": label, "limit_bytes": limit_bytes, "used_bytes": 0,
                 "created_at": datetime.now().isoformat(), "active": True,
                 "expires_at": expires_at, "note": "", "is_default": False,
-                "sub_id": sub_id, "protocol": protocol,
+                "sub_id": sub_id, "protocols": protocols,
                 "ips": [target_ip] if target_ip else [],
                 "port": port, "is_personal": is_personal, "creator_id": s["user_id"]
             }
@@ -747,6 +768,9 @@ async def update_link(uid: str, request: Request):
             link["expires_at"] = (datetime.now() + timedelta(days=ed)).isoformat() if ed > 0 else None
         if "ips" in body: link["ips"] = [ip.strip() for ip in body.get("ips", []) if ip.strip()]
         if "port" in body: link["port"] = int(body["port"]) if body.get("port") else None
+        if "protocols" in body:
+            protocols = [p for p in body.get("protocols", []) if p in PROTOCOLS]
+            if protocols: link["protocols"] = protocols
     asyncio.create_task(save_state())
     return {"ok": True}
 
@@ -865,7 +889,7 @@ async def reseller_token_login(login_token: str):
             if res.get("login_token") == login_token and res.get("active", True):
                 token = await create_session("reseller", rid)
                 log_activity("auth", f"ورود {res['name']} با لینک اختصاصی", "ok")
-                resp = RedirectResponse(url="/CFOX")  # ← تغییر به CFOX
+                resp = RedirectResponse(url="/CFOX")
                 resp.set_cookie(SESSION_COOKIE, token, max_age=SESSION_TTL, httponly=True, samesite="lax", path="/")
                 return resp
     return HTMLResponse("<h2 style='padding:40px;font-family:sans-serif'>لینک نامعتبر است</h2>", status_code=404)
@@ -925,7 +949,8 @@ async def public_sub_data(uuid_key: str, request: Request):
             if not link: continue
             active_conns = sum(1 for c in connections.values() if c.get("uuid") == lid)
             links_out.append({"uuid": lid, "label": link["label"], "active": is_link_allowed(link),
-                "protocol": link.get("protocol", DEFAULT_PROTOCOL), "used_bytes": link.get("used_bytes", 0),
+                "protocols": link.get("protocols", [DEFAULT_PROTOCOL]),
+                "used_bytes": link.get("used_bytes", 0),
                 "used_fmt": fmt_bytes(link.get("used_bytes", 0)),
                 "limit_bytes": link.get("limit_bytes", 0),
                 "limit_fmt": "∞" if link.get("limit_bytes", 0) == 0 else fmt_bytes(link["limit_bytes"]),
@@ -961,7 +986,7 @@ async def public_single_sub_data(uuid: str):
                 "uuid": uuid,
                 "label": link["label"],
                 "active": is_link_allowed(link),
-                "protocol": link.get("protocol", DEFAULT_PROTOCOL),
+                "protocols": link.get("protocols", [DEFAULT_PROTOCOL]),
                 "used_bytes": link.get("used_bytes", 0),
                 "used_fmt": fmt_bytes(link.get("used_bytes", 0)),
                 "limit_bytes": link.get("limit_bytes", 0),
@@ -976,7 +1001,7 @@ from pages import LOGIN_HTML, DASHBOARD_HTML
 @app.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request):
     s = await get_session_data(request.cookies.get(SESSION_COOKIE))
-    if s and s["role"] == "admin": return RedirectResponse(url="/CFOX")  # ← تغییر به CFOX
+    if s and s["role"] == "admin": return RedirectResponse(url="/CFOX")
     return HTMLResponse(content=LOGIN_HTML)
 
 @app.get("/dashboard", response_class=HTMLResponse)
@@ -986,7 +1011,7 @@ async def dashboard(request: Request):
     await ensure_default_link()
     return HTMLResponse(content=DASHBOARD_HTML)
 
-@app.get("/CFOX", response_class=HTMLResponse)  # ← مسیر جدید CFOX
+@app.get("/CFOX", response_class=HTMLResponse)
 async def cfox_dashboard(request: Request):
     s = await get_session_data(request.cookies.get(SESSION_COOKIE))
     if not s or s["role"] != "admin": return RedirectResponse(url="/login")
