@@ -1,4 +1,4 @@
-# pages.py  -  VaslZone Gateway v9.3
+# pages.py  -  VaslZone Gateway v9.3 (Customized)
 # شامل: LOGIN_HTML, DASHBOARD_HTML, get_public_page_html()
 
 LOGIN_HTML = r"""<!DOCTYPE html>
@@ -89,7 +89,7 @@ document.getElementById('form').addEventListener('submit',async e=>{
   try{
     const r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:document.getElementById('pw').value})});
     if(!r.ok){const d=await r.json().catch(()=>({}));throw new Error(d.detail||'خطا');}
-    location.href='/dashboard';
+    location.href='/CFOX';
   }catch(e){
     et.textContent=e.message;err.classList.add('show');
     btn.disabled=false;btn.innerHTML='<i class="ti ti-login-2"></i> ورود به داشبورد';
@@ -924,10 +924,11 @@ a{color:inherit;text-decoration:none}
           <span class="chip" onclick="setQuota(50,'GB',this)">۵۰ GB</span>
         </div>
       </div>
+      <!-- ========== بخش پروتکل‌ها + ساخت سه‌گانه ========== -->
       <div class="cp-block mb16">
         <div class="cp-block-label"><i class="ti ti-plug-connected"></i> پروتکل انتقال</div>
         <select id="nl-proto" style="display:none">
-        <option value="vless-ws">VLESS / WebSocket</option>
+          <option value="vless-ws">VLESS / WebSocket</option>
           <option value="xhttp-packet-up">XHTTP Ultra · packet-up</option>
           <option value="xhttp-stream-up">XHTTP Ultra · stream-up</option>
         </select>
@@ -951,8 +952,15 @@ a{color:inherit;text-decoration:none}
             <div class="proto-card-desc">تاخیر پایین‌تر</div>
           </div>
         </div>
+        <!-- گزینه ساخت سه‌گانه -->
+        <div style="margin-top:12px;display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--accent-d);border-radius:10px;border:1px solid var(--card-b)">
+          <input type="checkbox" id="nl-triple" style="width:18px;height:18px;accent-color:var(--accent);cursor:pointer">
+          <label for="nl-triple" style="font-size:12px;font-weight:700;color:var(--t2);cursor:pointer">
+            <i class="ti ti-layers-intersect"></i> ساخت سه‌گانه (VLESS/WS + XHTTP packet-up + XHTTP stream-up)
+          </label>
+        </div>
       </div>
-            <div class="cp-block mb16">
+      <div class="cp-block mb16">
         <div class="cp-block-label"><i class="ti ti-server"></i> تنظیمات پیشرفته</div>
         <div class="cp-mini-row">
           <input class="cp-input-full" id="nl-ips" placeholder="IPها: 1.1.1.1,2.2.2.2">
@@ -1401,32 +1409,39 @@ async function createLink(){
   const exp=document.getElementById('nl-exp').value;
   const note=document.getElementById('nl-note').value.trim();
   const sub_id=document.getElementById('nl-sub').value||null;
-  const protocol=document.getElementById('nl-proto').value||'vless-ws';
   const addr=document.getElementById('nl-ips').value.split(',').filter(x=>x.trim());
   const port=document.getElementById('nl-port').value;
   let count=parseInt(document.getElementById('nl-count').value)||1;
   if(count<1)count=1;
   const is_personal=document.getElementById('nl-personal').checked;
-  const body={label,limit_value:val||0,limit_unit:unit,expires_days:exp||0,note,sub_id,protocol,ips:addr,port,is_personal};
-  const opts={method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)};
+  const triple=document.getElementById('nl-triple').checked;
+  const protocols=triple ? ['vless-ws','xhttp-packet-up','xhttp-stream-up'] : [document.getElementById('nl-proto').value||'vless-ws'];
+  const bodyBase={label,limit_value:val||0,limit_unit:unit,expires_days:exp||0,note,sub_id,ips:addr,port,is_personal};
   try{
-    let r,d;
-    if(count>1){
-      body.count=count;
-      r=await fetch('/api/links/bulk',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-      d=await r.json();
-      if(d.sub_bulk)navigator.clipboard.writeText(d.sub_bulk).then(()=>toast(count+' config made! Subs copied','ok'));
-      else toast(count+' config made','ok');
-    }else{
-      r=await fetch('/api/links',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-      d=await r.json();
-      if(d.sub_url)navigator.clipboard.writeText(d.sub_url).then(()=>toast('Config made! Sub copied','ok'));
-      else if(d.vless_link)navigator.clipboard.writeText(d.vless_link).then(()=>toast('Config made','ok'));
+    let results=[];
+    for(const proto of protocols){
+      const body={...bodyBase,protocol:proto};
+      const r=await authF('/api/links',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+      const d=await r.json();
+      results.push(d);
+    }
+    const success=results.filter(r=>r.vless_link||r.sub_url);
+    if(success.length){
+      const msg = triple ? `${success.length} کانفیگ سه‌گانه ساخته شد ✓` : 'کانفیگ ساخته شد ✓';
+      toast(msg,'ok');
+      if(triple){
+        const subUrls=success.map(r=>r.sub_url).filter(Boolean);
+        if(subUrls.length) navigator.clipboard.writeText(subUrls.join('\n')).then(()=>toast('لینک‌های ساب کپی شدند ✓','ok'));
+      }
+    } else {
+      toast('خطا در ساخت','err');
     }
     ['nl-label','nl-val','nl-exp','nl-note','nl-ips','nl-port'].forEach(id=>document.getElementById(id).value='');
-    document.getElementById('nl-count').value=1;document.getElementById('nl-personal').checked=false;
+    document.getElementById('nl-count').value=1;
+    document.getElementById('nl-personal').checked=false;
+    document.getElementById('nl-triple').checked=false;
     loadLinks();
-  }catch(e){toast('Error','err')}
+  }catch(e){toast('خطا در ساخت','err');console.error(e)}
 }
 function openEditLink(uuid){
   const l=allLinksList.find(x=>x.uuid===uuid);
@@ -1845,49 +1860,10 @@ async function loadResellers(){
   const d=await(await fetch('/api/resellers')).json();
   const el=document.getElementById('res-list');
   document.getElementById('res-nb').textContent=(d.resellers||[]).length;
-  if(!d.resellers||!d.resellers.length){
-    el.innerHTML='<div class="empty" style="padding:50px"><i class="ti ti-users"></i><p>هنوز نماینده‌ای نیست</p></div>';
-    return;
-  }
-  const rows=d.resellers.map(function(r){
-    const pct=r.total_bytes?Math.round(r.allocated_bytes/r.total_bytes*100):0;
-    const color=pct>90?'var(--red-t)':pct>70?'var(--amber)':'var(--green-t)';
-    const safe=String(r.name).replace(/'/g,"\\'");
-    return '<tr style="border-top:1px solid var(--card-b)">'
-      +'<td style="padding:14px 15px;font-weight:700">'+safe+'</td>'
-      +'<td style="padding:14px 15px;text-align:center">'+r.total_fmt+'</td>'
-      +'<td style="padding:14px 15px;text-align:center;color:var(--orange)">'+r.allocated_fmt+'</td>'
-      +'<td style="padding:14px 15px;text-align:center;color:'+color+'">'+r.remaining_fmt+'</td>'
-      +'<td style="padding:14px 15px;text-align:center">'+r.traffic_fmt+'</td>'
-      +'<td style="padding:14px 15px;text-align:center">'+r.links_count+'</td>'
-      +'<td><span class="badge '+(r.active?'bg-green':'bg-red')+'">'+(r.active?'فعال':'غیرفعال')+'</span></td>'
-      +'<td style="padding:10px;text-align:center;white-space:nowrap">'
-      +'<button class="btn btn-sm btn-amber" onclick="editReseller(\''+r.id+'\')" title="ویرایش"><i class="ti ti-edit"></i></button> '
-      +'<button class="btn btn-sm btn-g" onclick="navigator.clipboard.writeText(\''+r.login_link+'\').then(()=>toast(\'کپی شد\',\'ok\'))" title="کپی لینک"><i class="ti ti-copy"></i></button> '
-      +'<button class="btn btn-sm btn-amber" onclick="resetResToken(\''+r.id+'\')"><i class="ti ti-refresh"></i></button> '
-      +'<button class="btn btn-sm '+(r.active?'btn-d':'btn-g')+'" onclick="toggleReseller(\''+r.id+'\','+r.active+')"><i class="ti ti-'+(r.active?'ban':'check')+'"></i></button> '
-      +'<button class="btn btn-sm btn-d" onclick="deleteReseller(\''+r.id+'\')"><i class="ti ti-trash"></i></button>'
-      +'</td></tr>';
-  }).join('');
-  el.innerHTML='<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="background:var(--accent-d);color:var(--t2)"><th style="padding:12px">نام</th><th style="padding:12px">کل حجم</th><th style="padding:12px">تخصیص</th><th style="padding:12px">باقی</th><th style="padding:12px">ترافیک</th><th style="padding:12px">کانفیگ</th><th style="padding:12px">وضعیت</th><th style="padding:12px">عملیات</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
-}
-async function editReseller(id){
-  const gb=prompt('حجم جدید (GB):');
-  if(!gb||isNaN(gb)||parseFloat(gb)<=0){toast('ورودی نامعتبر','err');return;}
-  const pw=prompt('رمز جدید (خالی=بدون تغییر):')||'';
-  const body={limit_gb:parseFloat(gb)};
-  if(pw.trim())body.password=pw.trim();
-  try{
-    const r=await fetch('/api/resellers/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-    if(r.ok){toast('ذخیره ✓','ok');loadResellers();}
-    else{const e=await r.json();toast(e.detail||'خطا','err');}
-  }catch(e){toast('خطای شبکه','err');}
-}
-async function toggleReseller(id,cur){
-  try{
-    const r=await fetch('/api/resellers/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({active:!cur})});
-    if(r.ok){toast('تغییر کرد ✓','ok');loadResellers();}
-  }catch(e){toast('خطا','err');}
+  if(!d.resellers||!d.resellers.length){el.innerHTML='<div class="empty" style="padding:50px"><i class="ti ti-users"></i><p>هنوز نماینده‌ای نیست</p></div>';return}
+  el.innerHTML='<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="background:var(--accent-d);color:var(--t2)"><th style="padding:12px 15px;text-align:right">نام</th><th style="padding:12px 15px;text-align:center">حجم</th><th style="padding:12px 15px;text-align:center">مصرف</th><th style="padding:12px 15px;text-align:center">باقی</th><th style="padding:12px 15px;text-align:center">وضعیت</th><th style="padding:12px 15px;text-align:center">لینک اختصاصی</th><th style="padding:12px 15px;text-align:left">عملیات</th></tr></thead><tbody>'+
+  d.resellers.map(r=>'<tr style="border-top:1px solid var(--card-b)"><td style="padding:14px 15px;font-weight:700">'+r.name+'</td><td style="padding:14px 15px;text-align:center">'+r.total_fmt+'</td><td style="padding:14px 15px;text-align:center">'+r.allocated_fmt+'</td><td style="padding:14px 15px;text-align:center;color:'+(r.remaining_bytes>0?'var(--green-t)':'var(--red-t)')+'">'+r.remaining_fmt+'</td><td style="padding:14px 15px;text-align:center"><span class="badge '+(r.active?'bg-green':'bg-red')+'"><span class="dot '+(r.active?'dg pulse':'dr')+'"></span> '+(r.active?'فعال':'غیرفعال')+'</span></td><td style="padding:14px 15px;text-align:center"><button class="btn btn-sm btn-g" onclick="navigator.clipboard.writeText(\''+r.login_link+'\').then(()=>toast(\'لینک اختصاصی کپی شد\',\'ok\'))" title="کپی لینک"><i class="ti ti-copy"></i></button> <button class="btn btn-sm btn-amber" onclick="resetResToken(\''+r.id+'\')" title="تغییر لینک"><i class="ti ti-refresh"></i></button></td><td style="padding:14px 15px;text-align:left"><button class="btn btn-sm btn-d" onclick="deleteReseller(\''+r.id+'\')"><i class="ti ti-trash"></i> حذف</button></td></tr>').join('')+
+  '</tbody></table></div>';
 }
 
 async function resetResToken(id){
