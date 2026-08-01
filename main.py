@@ -17,7 +17,6 @@ import uvicorn
 import httpx
 import logging
 from pymongo import MongoClient
-from resellers import router as reseller_router, token_router, setup as resellers_setup
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("VaslZone-Gateway")
@@ -144,7 +143,7 @@ SESSION_TTL = 60 * 60 * 24 * 7
 def hash_password(pw: str) -> str:
     return hashlib.sha256(f"{pw}{CONFIG['secret']}".encode()).hexdigest()
 
-AUTH = {"password_hash": hash_password(os.environ.get("ADMIN_PASSWORD", "Mahd1yar"))}
+AUTH = {"password_hash": hash_password(os.environ.get("ADMIN_PASSWORD", "admin"))}  # ← تغییر به admin
 SESSIONS: dict = {}
 SESSIONS_LOCK = asyncio.Lock()
 
@@ -354,11 +353,8 @@ async def subscription_single(uuid: str, request: Request):
     
     ua = request.headers.get("user-agent", "").lower()
     if any(b in ua for b in ["mozilla", "chrome", "safari", "firefox", "edge", "opera"]):
-        import importlib.util
-        spec = importlib.util.spec_from_file_location("pub", "public_page.py")
-        pub = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(pub)
-        return HTMLResponse(content=pub.get_single_sub_page_html(uuid))
+        from public_page import get_single_sub_page_html
+        return HTMLResponse(content=get_single_sub_page_html(uuid))
 
     
     host = get_host()
@@ -379,9 +375,8 @@ async def subscription_all(_=Depends(require_auth)):
     content = base64.b64encode("\n".join(lines).encode()).decode()
     return Response(content=content, media_type="text/plain")
 
-# خط ۲۳۵: این تابع الان اینجور شروع میشه:
 @app.get("/sub-group/{uuid_key}")
-async def sub_group_subscription(uuid_key: str, request: Request):  # ← request اضافه کن
+async def sub_group_subscription(uuid_key: str, request: Request):
     import base64
     async with SUBS_LOCK:
         sub = next((s for s in SUBS.values() if s.get("uuid_key") == uuid_key), None)
@@ -390,15 +385,11 @@ async def sub_group_subscription(uuid_key: str, request: Request):  # ← reques
             if hash_password(request.query_params.get("pw", "")) != sub["password_hash"]:
                 raise HTTPException(status_code=403, detail="wrong password")
     
-    # ↓↓↓ این رو بعد از چک پسورد اضافه کن ↓↓↓
-    # تشخیص مرورگر
     ua = request.headers.get("user-agent", "").lower()
     if any(b in ua for b in ["mozilla", "chrome", "safari", "firefox", "edge", "opera"]):
         from public_page import get_public_page_html
-        from public_page import get_public_page_html, get_single_sub_page_html
         return HTMLResponse(content=get_public_page_html(uuid_key))
     
-    # ادامه کد قبلی برای کلاینت v2ray
     host = get_host()
     link_ids = sub.get("link_ids", [])
     lines = []
@@ -501,10 +492,8 @@ async def api_login(request: Request):
     body = await request.json()
     ip = client_ip(request)
     pw = str(body.get("password", ""))
-    # خط دیباگ:
-    import logging
-    logging.info(f"Login attempt: pw={pw}, hash={hash_password(pw)}, expected={AUTH['password_hash']}")
-    if pw == "123456":
+    
+    if hash_password(pw) == AUTH["password_hash"]:
         token = await create_session("admin", "admin")
         log_activity("auth", f"ورود ادمین از {ip}", "ok")
         resp = JSONResponse({"ok": True, "role": "admin"})
@@ -630,19 +619,8 @@ async def create_link(request: Request):
     if protocol not in PROTOCOLS: protocol = DEFAULT_PROTOCOL
 
     if s["role"] == "reseller":
-        async with RESELLERS_LOCK:
-            my_res = RESELLERS.get(s["user_id"])
-            if not my_res or not my_res.get("active", True):
-                raise HTTPException(status_code=403, detail="اکانت نماینده غیرفعال")
-            sub_id = my_res.get("sub_id")
-            if not sub_id: raise HTTPException(500, "ساب نماینده نیست")
-        from resellers import check_reseller_capacity
         await check_reseller_capacity(s["user_id"], limit_bytes)
         is_personal = True
-        ips = []
-        port = None
-        exp_days = 0
-        expires_at = None
 
     flag = ""
     if ips: flag = await fetch_ip_flag(ips[0])
@@ -690,19 +668,8 @@ async def create_links_bulk(request: Request):
     if protocol not in PROTOCOLS: protocol = DEFAULT_PROTOCOL
 
     if s["role"] == "reseller":
-        async with RESELLERS_LOCK:
-            my_res = RESELLERS.get(s["user_id"])
-            if not my_res or not my_res.get("active", True):
-                raise HTTPException(status_code=403, detail="اکانت نماینده غیرفعال")
-            sub_id = my_res.get("sub_id")
-            if not sub_id: raise HTTPException(500, "ساب نماینده نیست")
-        from resellers import check_reseller_capacity
-        await check_reseller_capacity(s["user_id"], limit_bytes)
+        await check_reseller_capacity(s["user_id"], limit_bytes * count)
         is_personal = True
-        ips = []
-        port = None
-        exp_days = 0
-        expires_at = None
 
     created_uids = []
     host = get_host()
@@ -898,7 +865,7 @@ async def reseller_token_login(login_token: str):
             if res.get("login_token") == login_token and res.get("active", True):
                 token = await create_session("reseller", rid)
                 log_activity("auth", f"ورود {res['name']} با لینک اختصاصی", "ok")
-                resp = RedirectResponse(url="/dashboard")
+                resp = RedirectResponse(url="/CFOX")  # ← تغییر به CFOX
                 resp.set_cookie(SESSION_COOKIE, token, max_age=SESSION_TTL, httponly=True, samesite="lax", path="/")
                 return resp
     return HTMLResponse("<h2 style='padding:40px;font-family:sans-serif'>لینک نامعتبر است</h2>", status_code=404)
@@ -967,81 +934,15 @@ async def public_sub_data(uuid_key: str, request: Request):
                 "sub_url": f"https://{host}/sub/{lid}", "connections": active_conns})
         total_used = sum(l["used_bytes"] for l in links_out)
         return {
-    "locked": False,
-    "name": sub["name"],
-    "desc": sub.get("desc", ""),
-    "sub_url": f"https://{host}/sub-group/{uuid_key}",
-    "active_connections": sum(l["connections"] for l in links_out),
-    "total_used_fmt": fmt_bytes(total_used),
-    "links": links_out
-}
-
-@app.get("/api/public/sub-single/{uuid}")
-async def public_single_sub_data(uuid: str):
-    async with LINKS_LOCK:
-        link = LINKS.get(uuid)
-        if not link:
-            raise HTTPException(status_code=404, detail="not found")
-        host = get_host()
-        active_conns = sum(1 for c in connections.values() if c.get("uuid") == uuid)
-        vless_list = generate_vless_links(link, uuid, host)
-        return {
-            "name": link["label"],
-            "desc": link.get("note", ""),
-            "total_used_fmt": fmt_bytes(link.get("used_bytes", 0)),
-            "active_connections": active_conns,
-            "links": [{
-                "uuid": uuid, "label": link["label"],
-                "active": is_link_allowed(link),
-                "protocol": link.get("protocol", DEFAULT_PROTOCOL),
-                "used_bytes": link.get("used_bytes", 0),
-                "used_fmt": fmt_bytes(link.get("used_bytes", 0)),
-                "limit_bytes": link.get("limit_bytes", 0),
-                "limit_fmt": "∞" if link.get("limit_bytes", 0) == 0 else fmt_bytes(link["limit_bytes"]),
-                "vless_link": "\n".join(vless_list),
-                "sub_url": None
-            }]
-        }
-        
-@app.get("/api/public/sub-single/{uuid}")
-async def public_single_sub_data(uuid: str):
-    async with LINKS_LOCK:
-        link = LINKS.get(uuid)
-        if not link:
-            raise HTTPException(status_code=404, detail="not found")
-        host = get_host()
-        active_conns = sum(1 for c in connections.values() if c.get("uuid") == uuid)
-        vless_list = generate_vless_links(link, uuid, host)
-        return {
-            "name": link["label"],
-            "desc": link.get("note", ""),
-            "total_used_fmt": fmt_bytes(link.get("used_bytes", 0)),
-            "active_connections": active_conns,
-            "links": [{
-                "uuid": uuid,
-                "label": link["label"],
-                "active": is_link_allowed(link),
-                "protocol": link.get("protocol", DEFAULT_PROTOCOL),
-                "used_bytes": link.get("used_bytes", 0),
-                "used_fmt": fmt_bytes(link.get("used_bytes", 0)),
-                "limit_bytes": link.get("limit_bytes", 0),
-                "limit_fmt": "∞" if link.get("limit_bytes", 0) == 0 else fmt_bytes(link["limit_bytes"]),
-                "vless_link": "\n".join(vless_list),
-                "sub_url": None
-            }]
-        }
-# ── public_sub_data (همونی که داشتیم) ──
-        return {                          # ← return با {
-            "locked": False,              # ← ۸ فاصله
+            "locked": False,
             "name": sub["name"],
             "desc": sub.get("desc", ""),
             "sub_url": f"https://{host}/sub-group/{uuid_key}",
             "active_connections": sum(l["connections"] for l in links_out),
             "total_used_fmt": fmt_bytes(total_used),
             "links": links_out
-        }                                 # ← بسته شدن }
+        }
 
-# ── API جدید ──
 @app.get("/api/public/sub-single/{uuid}")
 async def public_single_sub_data(uuid: str):
     async with LINKS_LOCK:
@@ -1075,50 +976,22 @@ from pages import LOGIN_HTML, DASHBOARD_HTML
 @app.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request):
     s = await get_session_data(request.cookies.get(SESSION_COOKIE))
-    if s and s["role"] == "admin": return RedirectResponse(url="/dashboard")
+    if s and s["role"] == "admin": return RedirectResponse(url="/CFOX")  # ← تغییر به CFOX
     return HTMLResponse(content=LOGIN_HTML)
 
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard(request: Request):
     s = await get_session_data(request.cookies.get(SESSION_COOKIE))
-    if not s: return RedirectResponse(url="/login")
+    if not s or s["role"] != "admin": return RedirectResponse(url="/login")
     await ensure_default_link()
-    return HTMLResponse(content=render_dashboard(s["role"], DASHBOARD_HTML))
-    
-def render_dashboard(role: str, html: str) -> str:
-    users_count = len(LINKS)
-    active_count = sum(1 for l in LINKS.values() if l.get("active", True))
-    total_traffic = sum(l.get("used_bytes", 0) for l in LINKS.values())
-    total_fmt = fmt_bytes(total_traffic)
-    
-    return html.replace("{{total_users}}", str(users_count)) \
-               .replace("{{active_users}}", str(active_count)) \
-               .replace("{{total_traffic}}", total_fmt) \
-               .replace("{{role}}", role)
+    return HTMLResponse(content=DASHBOARD_HTML)
 
-# ── Reseller routes ───────────────────────────────────────────────────────────
-@app.on_event("startup")
-async def setup_resellers():
-    try:
-        await resellers_setup({
-            "RESELLERS": RESELLERS, "RESELLERS_LOCK": RESELLERS_LOCK,
-            "SUBS": SUBS, "SUBS_LOCK": SUBS_LOCK,
-            "LINKS": LINKS, "LINKS_LOCK": LINKS_LOCK,
-            "SESSIONS": SESSIONS, "SESSIONS_LOCK": SESSIONS_LOCK,
-            "GLOBAL_SETTINGS": GLOBAL_SETTINGS, "AUTH": AUTH,
-            "ADMIN_ID": None,
-            "hash_password": hash_password,
-            "create_session": create_session,
-            "destroy_session": destroy_session,
-            "log_activity": log_activity,
-            "save_state_callback": save_state,
-            "fmt_bytes": fmt_bytes,
-            "parse_size_to_bytes": parse_size_to_bytes,
-        })
-        app.include_router(reseller_router)
-        app.include_router(token_router)
-    except Exception as e:
-        logging.error(f"Reseller setup error: {e}")
+@app.get("/CFOX", response_class=HTMLResponse)  # ← مسیر جدید CFOX
+async def cfox_dashboard(request: Request):
+    s = await get_session_data(request.cookies.get(SESSION_COOKIE))
+    if not s or s["role"] != "admin": return RedirectResponse(url="/login")
+    await ensure_default_link()
+    return HTMLResponse(content=DASHBOARD_HTML)
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=CONFIG["port"], log_level="info", workers=1)
