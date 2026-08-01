@@ -1242,10 +1242,19 @@ function expChip(exp,expired){
   if(d<=3)return `<span class="exp-chip ec-warn"><i class="ti ti-alert-triangle"></i> ${toFa(d)} روز مانده</span>`;
   return `<span class="exp-chip ec-ok"><i class="ti ti-calendar-check"></i> ${toFa(d)} روز مانده</span>`;
 }
-function protoBadge(p){
-  const m={'vless-ws':['VLESS · WS','pc-ws'],'xhttp-packet-up':['XHTTP · packet-up','pc-xhttp'],'xhttp-stream-up':['XHTTP · stream-up','pc-xhttp'],'xhttp-stream-one':['XHTTP ULTRA','pc-ultra']};
-  const v=m[p]||m['vless-ws'];
-  return `<span class="proto-chip ${v[1]}">${v[0]}</span>`;
+// ====== تابع جدید protoBadge برای پشتیبانی از چند پروتکل ======
+function protoBadge(protocols){
+  if(!protocols || !protocols.length) protocols = ['vless-ws'];
+  const labels = {
+    'vless-ws': ['VLESS · WS', 'pc-ws'],
+    'xhttp-packet-up': ['XHTTP · packet-up', 'pc-xhttp'],
+    'xhttp-stream-up': ['XHTTP · stream-up', 'pc-xhttp'],
+    'xhttp-stream-one': ['XHTTP ULTRA', 'pc-ultra']
+  };
+  return protocols.map(p => {
+    const v = labels[p] || labels['vless-ws'];
+    return `<span class="proto-chip ${v[1]}">${v[0]}</span>`;
+  }).join('');
 }
 async function checkAuth(){try{const r=await fetch('/api/me');const d=await r.json();if(!d.authenticated)location.href='/login';}catch(e){location.href='/login'}}
 async function logout(){try{await fetch('/api/logout',{method:'POST'})}catch(e){}location.href='/login'}
@@ -1383,7 +1392,7 @@ if(curSub)nlSub.value=curSub;
       <div class="cfg-exp-col">${expChip(l.expires_at,l.expired)}</div>
       <div class="cfg-divider-v"></div>
       <div class="cfg-badges-col">
-        ${protoBadge(l.protocol)}
+        ${protoBadge(l.protocols || ['vless-ws'])}
         ${l.sub_id&&allSubsList.find(s=>s.sub_id===l.sub_id)?`<span class="cfg-sub-tag"><i class="ti ti-folder"></i> ${esc(allSubsList.find(s=>s.sub_id===l.sub_id).name)}</span>`:''}
       </div>
       <div class="cfg-divider-v"></div>
@@ -1402,6 +1411,7 @@ if(curSub)nlSub.value=curSub;
     document.getElementById('lsummary').innerHTML=links.slice(0,6).map(l=>`<div class="sr"><span class="sr-k" style="gap:5px"><i class="ti ${l.expired?'ti-calendar-x':l.active?'ti-circle-check':'ti-circle-x'}" style="color:${l.expired?'var(--amber)':l.active?'var(--green)':'var(--red)'}"></i>${esc(l.label)}</span><span class="sr-v" style="font-size:10px">${fmtB(l.used_bytes)} / ${l.limit_bytes===0?'∞':fmtB(l.limit_bytes)}</span></div>`).join('');
   }catch(e){console.error(e)}
 }
+// ====== تابع createLink اصلاح‌شده با پشتیبانی از protocols و count ======
 async function createLink(){
   const label=document.getElementById('nl-label').value.trim()||'کانفیگ جدید';
   const val=document.getElementById('nl-val').value;
@@ -1415,33 +1425,37 @@ async function createLink(){
   if(count<1)count=1;
   const is_personal=document.getElementById('nl-personal').checked;
   const triple=document.getElementById('nl-triple').checked;
-  const protocols=triple ? ['vless-ws','xhttp-packet-up','xhttp-stream-up'] : [document.getElementById('nl-proto').value||'vless-ws'];
-  const bodyBase={label,limit_value:val||0,limit_unit:unit,expires_days:exp||0,note,sub_id,ips:addr,port,is_personal};
+  
+  const body={
+    label, limit_value: val||0, limit_unit: unit,
+    expires_days: exp||0, note, sub_id, ips: addr, port, is_personal
+  };
+  
+  if(triple){
+    body.protocols = ['vless-ws','xhttp-packet-up','xhttp-stream-up'];
+  } else {
+    body.protocol = document.getElementById('nl-proto').value||'vless-ws';
+  }
+  
   try{
-    let results=[];
-    for(const proto of protocols){
-      const body={...bodyBase,protocol:proto};
-      const r=await authF('/api/links',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-      const d=await r.json();
-      results.push(d);
-    }
-    const success=results.filter(r=>r.vless_link||r.sub_url);
-    if(success.length){
-      const msg = triple ? `${success.length} کانفیگ سه‌گانه ساخته شد ✓` : 'کانفیگ ساخته شد ✓';
-      toast(msg,'ok');
-      if(triple){
-        const subUrls=success.map(r=>r.sub_url).filter(Boolean);
-        if(subUrls.length) navigator.clipboard.writeText(subUrls.join('\n')).then(()=>toast('لینک‌های ساب کپی شدند ✓','ok'));
-      }
+    let r, d;
+    if(count>1 && !triple){
+      body.count = count;
+      r = await authF('/api/links/bulk', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+      d = await r.json();
+      toast(count+' کانفیگ ساخته شد ✓','ok');
     } else {
-      toast('خطا در ساخت','err');
+      r = await authF('/api/links', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+      d = await r.json();
+      if(d.sub_url) navigator.clipboard.writeText(d.sub_url).then(()=>toast('کانفیگ ساخته شد · ساب کپی شد ✓','ok'));
+      else navigator.clipboard.writeText(d.vless_link).then(()=>toast('کانفیگ ساخته شد ✓','ok'));
     }
     ['nl-label','nl-val','nl-exp','nl-note','nl-ips','nl-port'].forEach(id=>document.getElementById(id).value='');
     document.getElementById('nl-count').value=1;
     document.getElementById('nl-personal').checked=false;
     document.getElementById('nl-triple').checked=false;
     loadLinks();
-  }catch(e){toast('خطا در ساخت','err');console.error(e)}
+  } catch(e){ toast('خطا در ساخت','err'); }
 }
 function openEditLink(uuid){
   const l=allLinksList.find(x=>x.uuid===uuid);
@@ -1694,7 +1708,7 @@ async function loadConns(){
         </div>
         <div class="conn-card-v2-divider"></div>
         <div class="conn-card-v2-body">
-          <div class="conn-proto-row">${protoBadge(protoVal)}</div>
+          <div class="conn-proto-row">${protoBadge([protoVal])}</div>
           <div class="conn-stat-row">
             <div class="conn-stat-box">
               <div class="conn-stat-icon"><i class="ti ti-transfer"></i></div>
@@ -2126,10 +2140,20 @@ function toast(msg,type=''){{
 function esc(s){{return String(s||'').replace(/[&<>"']/g,c=>({{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}}[c]))}}
 function fmtB(b){{if(!b||b===0)return '0 B';if(b<1024)return b+' B';if(b<1024**2)return (b/1024).toFixed(1)+' KB';if(b<1024**3)return (b/1024**2).toFixed(2)+' MB';return (b/1024**3).toFixed(2)+' GB'}}
 function toFa(n){{return String(n).replace(/\\d/g,d=>'۰۱۲۳۴۵۶۷۸۹'[d])}}
-function protoChip(p){{
-  if(p==='xhttp-stream-one')return '<span class="proto-chip pc-ultra"><i class="ti ti-bolt"></i> XHTTP ULTRA</span>';
-  if(p&&p.startsWith('xhttp'))return '<span class="proto-chip pc-xhttp">'+esc(p)+'</span>';
-  return '<span class="proto-chip pc-ws">VLESS · WS</span>';
+// ====== تابع protoChip جدید برای پشتیبانی از چند پروتکل ======
+function protoChip(protocols){{
+  if(!protocols || !protocols.length) protocols = ['vless-ws'];
+  const map = {{
+    'vless-ws': 'pc-ws',
+    'xhttp-packet-up': 'pc-xhttp',
+    'xhttp-stream-up': 'pc-xhttp',
+    'xhttp-stream-one': 'pc-ultra'
+  }};
+  return protocols.map(p => {{
+    const cls = map[p] || 'pc-ws';
+    const label = p === 'vless-ws' ? 'VLESS · WS' : p.replace('xhttp-', '').toUpperCase();
+    return `<span class="proto-chip ${{cls}}">${{label}}</span>`;
+  }}).join('');
 }}
 
 function showQR(label,link){{
@@ -2265,7 +2289,7 @@ function renderContent(d){{
                 <div>
                   <div class="cfg-label">${{esc(l.label)}}</div>
                   <div class="cfg-badges">
-                    ${{protoChip(l.protocol)}}
+                    ${{protoChip(l.protocols)}}
                     ${{l.connections > 0 ? `<span class="conn-chip"><span class="dot"></span> ${{toFa(l.connections)}} اتصال</span>` : ''}}
                   </div>
                 </div>
