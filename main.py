@@ -667,20 +667,20 @@ async def create_links_bulk(request: Request):
     s = await require_reseller_auth(request)
     body = await request.json()
     
-    # تلاش برای خواندن تعداد از فیلدهای مختلف (پشتیبانی از نام‌های متفاوت در فرانت‌اند)
+    # Parse count safely – support multiple possible keys
     count = 1
-    for field in ["count", "quantity", "number", "num", "amount"]:
-        val = body.get(field)
+    for key in ["count", "number", "quantity", "amount"]:
+        val = body.get(key)
         if val is not None:
             try:
                 count = int(val)
                 break
             except (ValueError, TypeError):
-                pass
-    # محدود کردن تعداد
+                continue
+    # Ensure at least 1 and at most 100
     count = max(1, min(count, 100))
     
-    logger.info(f"Bulk create: count={count}, body={body}")  # برای دیباگ در کنسول
+    logger.info(f"Bulk creation requested: count={count}")
 
     base_label = (body.get("label") or "Bulk").strip()[:40]
     lv = float(body.get("limit_value") or 0)
@@ -701,19 +701,23 @@ async def create_links_bulk(request: Request):
     if not protocols:
         protocols = [DEFAULT_PROTOCOL]
 
+    # Reseller capacity check
     if s["role"] == "reseller":
+        # If limit_bytes == 0 (unlimited), each link has no limit, but we still check total capacity?
+        # For bulk, we multiply by count. If unlimited (0) then 0 * count = 0, pass.
         await check_reseller_capacity(s["user_id"], limit_bytes * count)
-        is_personal = True
+        is_personal = True  # reseller links are always personal
 
-    # کش کردن پرچم‌های IP برای جلوگیری از درخواست‌های تکراری
+    # Pre-fetch flags for unique IPs to avoid repeated API calls
     ip_flags = {}
     for ip in ips:
         if ip not in ip_flags:
             ip_flags[ip] = await fetch_ip_flag(ip) if ip else ""
 
     created_uids = []
+    # Acquire LINKS_LOCK once for all creations to improve performance and avoid deadlocks
     async with LINKS_LOCK:
-        # آماده‌سازی زیرگروه (اگر وجود داشته باشد)
+        # Prepare sub object if needed
         sub_obj = None
         if sub_id:
             async with SUBS_LOCK:
@@ -731,12 +735,20 @@ async def create_links_bulk(request: Request):
             label = f"{base_label}-{i+1}" + (f" {flag}" if flag else "")
             uid = generate_uuid()
             link_data = {
-                "label": label, "limit_bytes": limit_bytes, "used_bytes": 0,
-                "created_at": datetime.now().isoformat(), "active": True,
-                "expires_at": expires_at, "note": "", "is_default": False,
-                "sub_id": sub_id, "protocols": protocols,
+                "label": label,
+                "limit_bytes": limit_bytes,
+                "used_bytes": 0,
+                "created_at": datetime.now().isoformat(),
+                "active": True,
+                "expires_at": expires_at,
+                "note": "",
+                "is_default": False,
+                "sub_id": sub_id,
+                "protocols": protocols,
                 "ips": [target_ip] if target_ip else [],
-                "port": port, "is_personal": is_personal, "creator_id": s["user_id"]
+                "port": port,
+                "is_personal": is_personal,
+                "creator_id": s["user_id"]
             }
             LINKS[uid] = link_data
             created_uids.append(uid)
@@ -759,8 +771,13 @@ async def create_links_bulk(request: Request):
                 if uuid_key:
                     sub_url = f"https://{host}/sub-group/{uuid_key}"
     
-    return {"ok": True, "count": count, "created_uids": created_uids,
-            "sub_url": sub_url, "vless_bulk": "\n".join(all_vless)}
+    return {
+        "ok": True,
+        "count": count,
+        "created_uids": created_uids,
+        "sub_url": sub_url,
+        "vless_bulk": "\n".join(all_vless)
+    }
 
 @app.get("/api/links")
 async def list_links(request: Request):
