@@ -1427,11 +1427,17 @@ async function createLink(){
   const triple=document.getElementById('nl-triple').checked;
   
   const body={
-    label, limit_value: val||0, limit_unit: unit,
-    expires_days: exp||0, note, sub_id, ips: addr, port, is_personal
+    label: label,
+    limit_value: val||0,
+    limit_unit: unit,
+    expires_days: exp||0,
+    note: note,
+    sub_id: sub_id,
+    ips: addr,
+    port: port,
+    is_personal: is_personal
   };
 
-  // انتخاب پروتکل‌ها بر اساس حالت
   let protocols;
   if (triple) {
     protocols = ['vless-ws','xhttp-packet-up','xhttp-stream-up'];
@@ -1441,10 +1447,9 @@ async function createLink(){
 
   try{
     let r, d;
-    // اگر تعداد بیشتر از ۱ باشد، از Bulk API استفاده کن (چه سه‌گانه چه تکی)
     if (count > 1) {
       body.count = count;
-      body.protocols = protocols;   // آرایه‌ای از پروتکل‌ها
+      body.protocols = protocols;
       r = await authF('/api/links/bulk', {
         method:'POST',
         headers:{'Content-Type':'application/json'},
@@ -1452,7 +1457,6 @@ async function createLink(){
       });
       d = await r.json();
       toast(count+' کانفیگ ساخته شد ✓','ok');
-      // کپی کردن اولین لینک یا لینک گروه
       if (d.sub_url) {
         navigator.clipboard.writeText(d.sub_url).then(()=>toast('ساب گروه کپی شد ✓','ok'));
       } else if (d.vless_bulk) {
@@ -1460,8 +1464,7 @@ async function createLink(){
         if (firstLink) navigator.clipboard.writeText(firstLink).catch(()=>{});
       }
     } else {
-      // تک کانفیگ
-      body.protocols = protocols;   // همیشه آرایه ارسال کن
+      body.protocols = protocols;
       r = await authF('/api/links', {
         method:'POST',
         headers:{'Content-Type':'application/json'},
@@ -1474,7 +1477,6 @@ async function createLink(){
         navigator.clipboard.writeText(d.vless_link).then(()=>toast('کانفیگ ساخته شد ✓','ok'));
       }
     }
-    // پاک کردن فرم
     ['nl-label','nl-val','nl-exp','nl-note','nl-ips','nl-port'].forEach(id=>document.getElementById(id).value='');
     document.getElementById('nl-count').value=1;
     document.getElementById('nl-personal').checked=false;
@@ -1482,7 +1484,6 @@ async function createLink(){
     loadLinks();
   } catch(e){ toast('خطا در ساخت','err'); }
 }
-
 function openEditLink(uuid){
   const l=allLinksList.find(x=>x.uuid===uuid);
   if(!l)return;
