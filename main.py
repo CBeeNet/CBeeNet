@@ -667,13 +667,21 @@ async def create_links_bulk(request: Request):
     s = await require_reseller_auth(request)
     body = await request.json()
     
-    # Parse count safely
-    try:
-        count = int(body.get("count", 1))
-    except (ValueError, TypeError):
-        count = 1
+    # تلاش برای خواندن تعداد از فیلدهای مختلف (پشتیبانی از نام‌های متفاوت در فرانت‌اند)
+    count = 1
+    for field in ["count", "quantity", "number", "num", "amount"]:
+        val = body.get(field)
+        if val is not None:
+            try:
+                count = int(val)
+                break
+            except (ValueError, TypeError):
+                pass
+    # محدود کردن تعداد
     count = max(1, min(count, 100))
     
+    logger.info(f"Bulk create: count={count}, body={body}")  # برای دیباگ در کنسول
+
     base_label = (body.get("label") or "Bulk").strip()[:40]
     lv = float(body.get("limit_value") or 0)
     lu = body.get("limit_unit") or "GB"
@@ -697,16 +705,15 @@ async def create_links_bulk(request: Request):
         await check_reseller_capacity(s["user_id"], limit_bytes * count)
         is_personal = True
 
-    # Pre-fetch flags for unique IPs to avoid repeated API calls
+    # کش کردن پرچم‌های IP برای جلوگیری از درخواست‌های تکراری
     ip_flags = {}
     for ip in ips:
         if ip not in ip_flags:
             ip_flags[ip] = await fetch_ip_flag(ip) if ip else ""
 
     created_uids = []
-    # Acquire LINKS_LOCK once for all creations to improve performance and avoid deadlocks
     async with LINKS_LOCK:
-        # Prepare sub object if needed
+        # آماده‌سازی زیرگروه (اگر وجود داشته باشد)
         sub_obj = None
         if sub_id:
             async with SUBS_LOCK:
