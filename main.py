@@ -69,7 +69,6 @@ async def load_state():
             if r.status_code == 200:
                 import base64
                 data = json.loads(base64.b64decode(r.json()["content"]).decode())
-                # تبدیل protocol قدیمی به protocols
                 for uid, link in data.get("links", {}).items():
                     if "protocol" in link and "protocols" not in link:
                         link["protocols"] = [link.pop("protocol")]
@@ -623,12 +622,10 @@ async def create_link(request: Request):
     is_personal = bool(body.get("is_personal", False))
     sub_id = body.get("sub_id")
     
-    # دریافت پروتکل‌ها (لیست)
     protocols = body.get("protocols")
     if not protocols:
         proto = body.get("protocol", DEFAULT_PROTOCOL)
         protocols = [proto]
-    # اعتبارسنجی
     protocols = [p for p in protocols if p in PROTOCOLS]
     if not protocols:
         protocols = [DEFAULT_PROTOCOL]
@@ -703,10 +700,8 @@ async def create_links_bulk(request: Request):
 
     # Reseller capacity check
     if s["role"] == "reseller":
-        # If limit_bytes == 0 (unlimited), each link has no limit, but we still check total capacity?
-        # For bulk, we multiply by count. If unlimited (0) then 0 * count = 0, pass.
         await check_reseller_capacity(s["user_id"], limit_bytes * count)
-        is_personal = True  # reseller links are always personal
+        is_personal = True
 
     # Pre-fetch flags for unique IPs to avoid repeated API calls
     ip_flags = {}
@@ -715,9 +710,7 @@ async def create_links_bulk(request: Request):
             ip_flags[ip] = await fetch_ip_flag(ip) if ip else ""
 
     created_uids = []
-    # Acquire LINKS_LOCK once for all creations to improve performance and avoid deadlocks
     async with LINKS_LOCK:
-        # Prepare sub object if needed
         sub_obj = None
         if sub_id:
             async with SUBS_LOCK:
