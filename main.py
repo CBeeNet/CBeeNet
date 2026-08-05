@@ -666,8 +666,13 @@ async def create_link(request: Request):
 async def create_links_bulk(request: Request):
     s = await require_reseller_auth(request)
     body = await request.json()
-    count = min(int(body.get("count", 1)), 100)
-    if count < 1: count = 1
+    
+    # Parse count safely
+    try:
+        count = int(body.get("count", 1))
+    except (ValueError, TypeError):
+        count = 1
+    count = max(1, min(count, 100))
     
     base_label = (body.get("label") or "Bulk").strip()[:40]
     lv = float(body.get("limit_value") or 0)
@@ -692,16 +697,33 @@ async def create_links_bulk(request: Request):
         await check_reseller_capacity(s["user_id"], limit_bytes * count)
         is_personal = True
 
+    # Pre-fetch flags for unique IPs to avoid repeated API calls
+    ip_flags = {}
+    for ip in ips:
+        if ip not in ip_flags:
+            ip_flags[ip] = await fetch_ip_flag(ip) if ip else ""
+
     created_uids = []
-    host = get_host()
-    
-    for i in range(count):
-        target_ip = ips[i % len(ips)] if ips else ""
-        flag = await fetch_ip_flag(target_ip) if target_ip else ""
-        label = f"{base_label}-{i+1}" + (f" {flag}" if flag else "")
-        uid = generate_uuid()
-        async with LINKS_LOCK:
-            LINKS[uid] = {
+    # Acquire LINKS_LOCK once for all creations to improve performance and avoid deadlocks
+    async with LINKS_LOCK:
+        # Prepare sub object if needed
+        sub_obj = None
+        if sub_id:
+            async with SUBS_LOCK:
+                if sub_id in SUBS:
+                    sub_obj = SUBS[sub_id]
+                    if "link_ids" not in sub_obj:
+                        sub_obj["link_ids"] = []
+        for i in range(count):
+            if ips:
+                target_ip = ips[i % len(ips)]
+                flag = ip_flags.get(target_ip, "")
+            else:
+                target_ip = ""
+                flag = ""
+            label = f"{base_label}-{i+1}" + (f" {flag}" if flag else "")
+            uid = generate_uuid()
+            link_data = {
                 "label": label, "limit_bytes": limit_bytes, "used_bytes": 0,
                 "created_at": datetime.now().isoformat(), "active": True,
                 "expires_at": expires_at, "note": "", "is_default": False,
@@ -709,16 +731,15 @@ async def create_links_bulk(request: Request):
                 "ips": [target_ip] if target_ip else [],
                 "port": port, "is_personal": is_personal, "creator_id": s["user_id"]
             }
-            if sub_id:
-                async with SUBS_LOCK:
-                    if sub_id in SUBS:
-                        ids = SUBS[sub_id].setdefault("link_ids", [])
-                        if uid not in ids: ids.append(uid)
-        created_uids.append(uid)
+            LINKS[uid] = link_data
+            created_uids.append(uid)
+            if sub_obj:
+                sub_obj["link_ids"].append(uid)
     
     asyncio.create_task(save_state())
     log_activity("link", f"{count} کانفیگ {base_label} ساخته شد", "ok")
     
+    host = get_host()
     all_vless = []
     for uid in created_uids:
         all_vless.extend(generate_vless_links(LINKS[uid], uid, host))
@@ -728,7 +749,8 @@ async def create_links_bulk(request: Request):
         async with SUBS_LOCK:
             if sub_id in SUBS:
                 uuid_key = SUBS[sub_id].get("uuid_key", "")
-                if uuid_key: sub_url = f"https://{host}/sub-group/{uuid_key}"
+                if uuid_key:
+                    sub_url = f"https://{host}/sub-group/{uuid_key}"
     
     return {"ok": True, "count": count, "created_uids": created_uids,
             "sub_url": sub_url, "vless_bulk": "\n".join(all_vless)}
