@@ -1430,26 +1430,51 @@ async function createLink(){
     label, limit_value: val||0, limit_unit: unit,
     expires_days: exp||0, note, sub_id, ips: addr, port, is_personal
   };
-  
-  if(triple){
-    body.protocols = ['vless-ws','xhttp-packet-up','xhttp-stream-up'];
+
+  // انتخاب پروتکل‌ها بر اساس حالت
+  let protocols;
+  if (triple) {
+    protocols = ['vless-ws','xhttp-packet-up','xhttp-stream-up'];
   } else {
-    body.protocol = document.getElementById('nl-proto').value||'vless-ws';
+    protocols = [document.getElementById('nl-proto').value||'vless-ws'];
   }
-  
+
   try{
     let r, d;
-    if(count>1 && !triple){
+    // اگر تعداد بیشتر از ۱ باشد، از Bulk API استفاده کن (چه سه‌گانه چه تکی)
+    if (count > 1) {
       body.count = count;
-      r = await authF('/api/links/bulk', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+      body.protocols = protocols;   // آرایه‌ای از پروتکل‌ها
+      r = await authF('/api/links/bulk', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify(body)
+      });
       d = await r.json();
       toast(count+' کانفیگ ساخته شد ✓','ok');
+      // کپی کردن اولین لینک یا لینک گروه
+      if (d.sub_url) {
+        navigator.clipboard.writeText(d.sub_url).then(()=>toast('ساب گروه کپی شد ✓','ok'));
+      } else if (d.vless_bulk) {
+        const firstLink = d.vless_bulk.split('\n')[0];
+        if (firstLink) navigator.clipboard.writeText(firstLink).catch(()=>{});
+      }
     } else {
-      r = await authF('/api/links', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+      // تک کانفیگ
+      body.protocols = protocols;   // همیشه آرایه ارسال کن
+      r = await authF('/api/links', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify(body)
+      });
       d = await r.json();
-      if(d.sub_url) navigator.clipboard.writeText(d.sub_url).then(()=>toast('کانفیگ ساخته شد · ساب کپی شد ✓','ok'));
-      else navigator.clipboard.writeText(d.vless_link).then(()=>toast('کانفیگ ساخته شد ✓','ok'));
+      if (d.sub_url) {
+        navigator.clipboard.writeText(d.sub_url).then(()=>toast('کانفیگ ساخته شد · ساب کپی شد ✓','ok'));
+      } else {
+        navigator.clipboard.writeText(d.vless_link).then(()=>toast('کانفیگ ساخته شد ✓','ok'));
+      }
     }
+    // پاک کردن فرم
     ['nl-label','nl-val','nl-exp','nl-note','nl-ips','nl-port'].forEach(id=>document.getElementById(id).value='');
     document.getElementById('nl-count').value=1;
     document.getElementById('nl-personal').checked=false;
@@ -1457,6 +1482,7 @@ async function createLink(){
     loadLinks();
   } catch(e){ toast('خطا در ساخت','err'); }
 }
+
 function openEditLink(uuid){
   const l=allLinksList.find(x=>x.uuid===uuid);
   if(!l)return;
