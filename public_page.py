@@ -95,16 +95,97 @@ body {{
   width: 88px;
   height: 88px;
   border-radius: 50%;
-  background: linear-gradient(135deg, var(--primary), var(--secondary));
+  background: #1a1a15;
+  border: 2px solid var(--border);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 40px;
-  color: #000;
-  box-shadow: 0 0 0 6px rgba(255,215,0,0.15), 0 20px 50px rgba(255,215,0,0.20);
-  transition: transform 0.4s ease;
+  position: relative;
+  box-shadow: 0 0 0 6px rgba(255,215,0,0.06), 0 20px 50px rgba(255,215,0,0.10);
+  transition: transform 0.4s ease, border-color 0.5s;
 }}
 .logo-wrap:hover {{ transform: scale(1.05) rotate(-4deg); }}
+.logo-wrap.flame-on {{
+  border-color: var(--primary);
+  box-shadow: 0 0 0 6px rgba(255,215,0,0.15), 0 20px 50px rgba(255,215,0,0.25);
+}}
+.logo-wrap.flame-off {{
+  border-color: var(--border);
+  box-shadow: 0 0 0 6px rgba(255,215,0,0.04), 0 20px 50px rgba(0,0,0,0.3);
+}}
+
+/* ===== FLAME ANIMATION ===== */
+.flame-container {{
+  position: relative;
+  width: 60px;
+  height: 70px;
+  display: flex;
+  justify-content: center;
+  align-items: flex-end;
+}}
+.flame {{
+  position: absolute;
+  bottom: 0;
+  border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%;
+  filter: blur(1px);
+  transform-origin: bottom center;
+}}
+.flame-core {{
+  width: 18px;
+  height: 30px;
+  background: radial-gradient(ellipse at center, #fff8e0 0%, #ffd700 50%, #ff8c00 80%, transparent);
+  animation: flameCore 1.2s ease-in-out infinite alternate;
+}}
+.flame-mid {{
+  width: 28px;
+  height: 44px;
+  background: radial-gradient(ellipse at center, #ffd700 0%, #ff8c00 50%, #ff4500 80%, transparent);
+  animation: flameMid 1.6s ease-in-out infinite alternate;
+}}
+.flame-outer {{
+  width: 40px;
+  height: 56px;
+  background: radial-gradient(ellipse at center, #ff8c00 0%, #ff4500 40%, #cc3300 70%, transparent);
+  animation: flameOuter 2.0s ease-in-out infinite alternate;
+}}
+@keyframes flameCore {{
+  0% {{ transform: scaleY(0.8) scaleX(0.9); opacity:0.9; }}
+  100% {{ transform: scaleY(1.2) scaleX(1.1); opacity:1; }}
+}}
+@keyframes flameMid {{
+  0% {{ transform: scaleY(0.85) scaleX(0.95); opacity:0.8; }}
+  100% {{ transform: scaleY(1.15) scaleX(1.05); opacity:1; }}
+}}
+@keyframes flameOuter {{
+  0% {{ transform: scaleY(0.9) scaleX(0.9); opacity:0.6; }}
+  100% {{ transform: scaleY(1.1) scaleX(1.1); opacity:0.9; }}
+}}
+
+/* حالت خاموش */
+.flame-off .flame-core,
+.flame-off .flame-mid,
+.flame-off .flame-outer {{
+  animation-play-state: paused;
+  opacity: 0.1 !important;
+  background: #555 !important;
+  filter: grayscale(1) blur(2px);
+}}
+.flame-off .flame-core {{
+  height: 10px;
+  width: 10px;
+  background: #444 !important;
+}}
+.flame-off .flame-mid {{
+  height: 14px;
+  width: 16px;
+  background: #333 !important;
+}}
+.flame-off .flame-outer {{
+  height: 18px;
+  width: 22px;
+  background: #222 !important;
+}}
+
 .brand {{
   font-size: 28px;
   font-weight: 900;
@@ -270,7 +351,7 @@ body {{
   50% {{ opacity:0.2; transform:scale(0.6); }}
 }}
 
-/* ===== COPY ALL BAR (بالای لیست کانفیگ‌ها) ===== */
+/* ===== COPY ALL BAR ===== */
 .copy-all {{
   background: var(--surface);
   backdrop-filter: blur(16px);
@@ -325,7 +406,7 @@ body {{
   box-shadow: 0 6px 30px rgba(255,215,0,0.5);
 }}
 
-/* ===== CONFIG LIST (ACCORDION STYLE) ===== */
+/* ===== CONFIG LIST ===== */
 .section-header {{
   font-size: 13px;
   font-weight: 800;
@@ -609,7 +690,13 @@ body {{
 <!-- Main -->
 <div class="wrap">
   <div class="header">
-    <div class="logo-wrap"><i class="ti ti-brand-c-sharp"></i></div>
+    <div class="logo-wrap" id="logoWrap">
+      <div class="flame-container" id="flameContainer">
+        <div class="flame flame-outer"></div>
+        <div class="flame flame-mid"></div>
+        <div class="flame flame-core"></div>
+      </div>
+    </div>
     <div class="brand">CBeeNet</div>
     <div class="tagline">اشتراک · VPN</div>
     <a class="tele-link" href="https://t.me/CBeeNet" target="_blank">
@@ -674,13 +761,29 @@ function protoLabel(protocols) {{
   }}
 }})();
 
+// ===== FLAME CONTROL =====
+function setFlameState(on) {{
+  const wrap = document.getElementById('logoWrap');
+  const container = document.getElementById('flameContainer');
+  if (on) {{
+    wrap.classList.remove('flame-off');
+    wrap.classList.add('flame-on');
+    container.classList.remove('flame-off');
+  }} else {{
+    wrap.classList.remove('flame-on');
+    wrap.classList.add('flame-off');
+    container.classList.add('flame-off');
+  }}
+}}
+
 // ===== DATA FETCH =====
 async function loadData() {{
   try {{
     const r = await fetch(API_URL);
-    if (!r.ok) throw new Error();
+    if (!r.ok) throw new Error('HTTP ' + r.status);
     return await r.json();
   }} catch (e) {{
+    console.error('Fetch error:', e);
     return null;
   }}
 }}
@@ -693,11 +796,15 @@ function render(d) {{
       <i class="ti ti-link-off"></i>
       <p>کانفیگی یافت نشد</p>
     </div>`;
+    setFlameState(false);
     return;
   }}
   allLinks = d.links;
-  // precompute lines (split by newline)
   d.links.forEach(l => l._lines = l.vless_link ? l.vless_link.split("\\n").filter(x => x) : []);
+
+  // Determine if any link is active and has remaining quota (or unlimited)
+  const hasActive = d.links.some(l => l.active && (l.limit_bytes === 0 || l.used_bytes < l.limit_bytes));
+  setFlameState(hasActive);
 
   const active = d.links.filter(l => l.active).length;
   const totalUsed = d.links.reduce((s, l) => s + (l.used_bytes || 0), 0);
@@ -730,7 +837,7 @@ function render(d) {{
     </div>
   </div>`;
 
-  // ===== COPY ALL BAR (بالای لیست کانفیگ‌ها) =====
+  // Copy all bar
   const allVlessLinks = d.links.map(l => l.vless_link || '').filter(x => x);
   if (allVlessLinks.length > 0) {{
     html += `<div class="copy-all">
@@ -836,6 +943,7 @@ function showToast(msg, type = '') {{
         <p>خطا در بارگذاری</p>
       </div>
     `;
+    setFlameState(false);
   }}
 }})();
 </script>
