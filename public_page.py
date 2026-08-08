@@ -1,5 +1,10 @@
+# public_page.py
+# Fixed: All JavaScript template literal braces ({...}) are now doubled to avoid f-string parsing errors.
+# Only {api_url} and {quote(title)} are kept as f-string placeholders.
+
 from fastapi.responses import HTMLResponse
 from urllib.parse import quote
+
 
 def get_sub_page_html(api_url: str, title: str, subtitle: str = "") -> str:
     return f"""<!DOCTYPE html>
@@ -743,7 +748,7 @@ function protoLabel(protocols) {{
     'xhttp-stream-up': 'XHTTP',
     'xhttp-stream-one': 'XHTTP ULTRA'
   }};
-  return protocols.map(p => `<span class="config-badge-proto">${labels[p] || 'VLESS+WS'}</span>`).join('');
+  return protocols.map(p => `<span class="config-badge-proto">${{labels[p] || 'VLESS+WS'}}</span>`).join('');
 }}
 
 // ===== PARTICLES =====
@@ -813,26 +818,26 @@ function render(d) {{
   // Info card
   html += `<div class="info-card">
     <div class="glow-spot"></div>
-    <div class="info-eyebrow"><i class="ti ti-folder"></i> ${d.links.length === 1 ? 'کانفیگ' : 'گروه دسترسی'}</div>
-    <div class="info-name">${esc(d.name || 'CBeeNet')}</div>
-    ${d.desc ? `<div class="info-desc">${esc(d.desc)}</div>` : ''}
+    <div class="info-eyebrow"><i class="ti ti-folder"></i> ${{d.links.length === 1 ? 'کانفیگ' : 'گروه دسترسی'}}</div>
+    <div class="info-name">${{esc(d.name || 'CBeeNet')}}</div>
+    ${{d.desc ? `<div class="info-desc">${{esc(d.desc)}}</div>` : ''}}
   </div>`;
 
   // Stats
   html += `<div class="stats">
     <div class="stat-item">
       <div class="stat-label">وضعیت</div>
-      <div class="stat-value">${d.links.length === 1 ? (d.links[0].active ? 'فعال' : 'غیرفعال') : active + '/' + d.links.length}</div>
+      <div class="stat-value">${{d.links.length === 1 ? (d.links[0].active ? 'فعال' : 'غیرفعال') : active + '/' + d.links.length}}</div>
       <div class="stat-sub"></div>
     </div>
     <div class="stat-item">
       <div class="stat-label">مصرف کل</div>
-      <div class="stat-value">${fmtB(totalUsed)}</div>
+      <div class="stat-value">${{fmtB(totalUsed)}}</div>
       <div class="stat-sub">مجموع</div>
     </div>
     <div class="stat-item">
       <div class="stat-label">اتصالات</div>
-      <div class="stat-value">${d.active_connections || 0}</div>
+      <div class="stat-value">${{d.active_connections || 0}}</div>
       <div class="stat-sub"><span class="dot-live"></span> آنلاین</div>
     </div>
   </div>`;
@@ -843,14 +848,14 @@ function render(d) {{
     html += `<div class="copy-all">
       <div class="copy-all-text">
         <div class="copy-all-title"><i class="ti ti-copy"></i> کپی همه کانفیگ‌ها</div>
-        <div class="copy-all-sub">${allVlessLinks.length} لینک · با یک کلیک</div>
+        <div class="copy-all-sub">${{allVlessLinks.length}} لینک · با یک کلیک</div>
       </div>
-      <button class="btn-copy-all" onclick="copyAll()"><i class="ti ti-clipboard-copy"></i> کپی همه (${allVlessLinks.length})</button>
+      <button class="btn-copy-all" onclick="copyAll()"><i class="ti ti-clipboard-copy"></i> کپی همه (${{allVlessLinks.length}})</button>
     </div>`;
   }}
 
   // Config list header
-  html += `<div class="section-header"><i class="ti ti-link"></i> کانفیگ‌ها (${d.links.length})</div>`;
+  html += `<div class="section-header"><i class="ti ti-link"></i> کانفیگ‌ها (${{d.links.length}})</div>`;
 
   // Config items
   for (let i = 0; i < d.links.length; i++) {{
@@ -867,31 +872,31 @@ function render(d) {{
     html += `<div class="config-item">
       <div class="config-header" onclick="toggleBody(this)">
         <div class="config-label">
-          <span>${esc(l.label)}</span>
-          ${protoBadges}
+          <span>${{esc(l.label)}}</span>
+          ${{protoBadges}}
         </div>
-        <span class="config-status ${statusClass}"><i class="ti ti-${statusIcon}"></i> ${statusText}</span>
+        <span class="config-status ${{statusClass}}"><i class="ti ti-${{statusIcon}}"></i> ${{statusText}}</span>
         <span class="config-toggle"><i class="ti ti-chevron-down"></i></span>
       </div>
       <div class="config-body">
         <div class="usage-bar-wrap">
           <div class="usage-meta">
-            <span>مصرف: <b>${l.used_fmt}</b></span>
-            <span>سهمیه: <b>${l.limit_fmt}</b></span>
+            <span>مصرف: <b>${{l.used_fmt}}</b></span>
+            <span>سهمیه: <b>${{l.limit_fmt}}</b></span>
           </div>
-          <div class="bar-track"><div class="bar-fill" style="width:${pct}%;"></div></div>
-          <span class="remain-tag ${rc}"><i class="ti ${remain < 0 ? 'ti-infinity' : 'ti-database'}"></i> ${remain < 0 ? 'نامحدود' : 'باقی: ' + rf}</span>
+          <div class="bar-track"><div class="bar-fill" style="width:${{pct}}%;"></div></div>
+          <span class="remain-tag ${{rc}}"><i class="ti ${{remain < 0 ? 'ti-infinity' : 'ti-database'}}"></i> ${{remain < 0 ? 'نامحدود' : 'باقی: ' + rf}}</span>
         </div>
-        ${l._lines.length ? `<div class="server-list">
+        ${{l._lines.length ? `<div class="server-list">
           <div class="server-list-title"><i class="ti ti-server-2"></i> سرورهای دسترسی</div>
-          ${l._lines.map((line, j) => `
+          ${{l._lines.map((line, j) => `
             <div class="server-row">
-              <span class="server-index">#${j+1}</span>
-              <span class="server-address">${esc(line)}</span>
-              <button class="btn-copy" onclick="copyText('${esc(line)}')"><i class="ti ti-copy"></i> کپی</button>
+              <span class="server-index">#${{j+1}}</span>
+              <span class="server-address">${{esc(line)}}</span>
+              <button class="btn-copy" onclick="copyText('${{esc(line)}}')"><i class="ti ti-copy"></i> کپی</button>
             </div>
-          `).join('')}
-        </div>` : ''}
+          `).join('')}}
+        </div>` : ''}}
       </div>
     </div>`;
   }}
@@ -928,7 +933,7 @@ function showToast(msg, type = '') {{
   t.textContent = msg;
   t.className = 'toast show ' + (type || '');
   clearTimeout(t._hide);
-  t._hide = setTimeout(() => t.classList.remove('show'), 2000);
+  t._hide = setTimeout(() => t.classList.remove('show'), 3000);
 }}
 
 // ===== INIT =====
