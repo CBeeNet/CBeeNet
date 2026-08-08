@@ -19,10 +19,10 @@ import logging
 from pymongo import MongoClient
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
-logger = logging.getLogger("VaslZone-Gateway")
+logger = logging.getLogger("CBeeNet-Gateway")
 IRAN_TZ = ZoneInfo("Asia/Tehran")
 
-app = FastAPI(title="VaslZone Gateway", docs_url=None, redoc_url=None)
+app = FastAPI(title="CBeeNet Gateway", docs_url=None, redoc_url=None)
 
 CONFIG = {
     "port": int(os.environ.get("PORT", 8000)),
@@ -51,7 +51,7 @@ async def init_mongo():
     if uri:
         try:
             mongo_client = MongoClient(uri, serverSelectionTimeoutMS=5000)
-            mongo_db = mongo_client["vaslzone"]
+            mongo_db = mongo_client["CBeeNet"]
             logger.info("MongoDB connected")
         except Exception as e:
             logger.warning(f"MongoDB fail: {e}")
@@ -64,11 +64,12 @@ async def load_state():
         fname = os.environ.get("GITHUB_FILE", "state.json")
         if token and repo:
             url = f"https://api.github.com/repos/{repo}/contents/{fname}"
-            headers = {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json", "User-Agent": "VaslZone"}
+            headers = {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json", "User-Agent": "CBeeNet"}
             r = await http_client.get(url, headers=headers, timeout=10.0)
             if r.status_code == 200:
                 import base64
                 data = json.loads(base64.b64decode(r.json()["content"]).decode())
+                # تبدیل protocol قدیمی به protocols
                 for uid, link in data.get("links", {}).items():
                     if "protocol" in link and "protocols" not in link:
                         link["protocols"] = [link.pop("protocol")]
@@ -100,7 +101,7 @@ async def save_state():
         fname = os.environ.get("GITHUB_FILE", "state.json")
         if token and repo:
             url = f"https://api.github.com/repos/{repo}/contents/{fname}"
-            headers = {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json", "User-Agent": "VaslZone"}
+            headers = {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json", "User-Agent": "CBeeNet"}
             sha = None
             try:
                 r = await http_client.get(url, headers=headers, timeout=10.0)
@@ -201,7 +202,7 @@ async def startup():
     await init_mongo()
     await load_state()
     log_activity("system", "سرور راه‌اندازی شد", "ok")
-    logger.info(f"VaslZone Gateway started on port {CONFIG['port']}")
+    logger.info(f"CBeeNet Gateway started on port {CONFIG['port']}")
 
 @app.on_event("shutdown")
 async def shutdown():
@@ -262,7 +263,7 @@ def generate_vless_links(link_data: dict, uuid: str, host: str) -> list[str]:
 
     for ip in ips:
         for proto in protocols:
-            remark = f"VaslZone-{link_data['label']}-{proto}" if len(ips) > 1 or len(protocols) > 1 else f"VaslZone-{link_data['label']}"
+            remark = f"CBeeNet-{link_data['label']}-{proto}" if len(ips) > 1 or len(protocols) > 1 else f"CBeeNet-{link_data['label']}"
             links.append(_format_vless_uri(uuid, ip, port, remark, proto, host))
     return links
 
@@ -343,7 +344,7 @@ async def check_reseller_capacity(reseller_id: str, new_limit_bytes: int):
 # ── Basic endpoints ───────────────────────────────────────────────────────────
 @app.get("/")
 async def root():
-    return {"service": "VaslZone Gateway", "version": "9.2", "status": "active", "channel": "https://t.me/VaslZone"}
+    return {"service": "CBeeNet Gateway", "version": "9.2", "status": "active", "channel": "https://t.me/CBeeNet"}
 
 @app.get("/health")
 async def health():
@@ -367,7 +368,7 @@ async def subscription_single(uuid: str, request: Request):
     lines = generate_vless_links(link, uuid, host)
     content = base64.b64encode("\n".join(lines).encode()).decode()
     return Response(content=content, media_type="text/plain",
-        headers={"profile-title": quote(link["label"]), "support-url": "https://t.me/VaslZone"})
+        headers={"profile-title": quote(link["label"]), "support-url": "https://t.me/CBeeNet"})
 
 @app.get("/sub-all")
 async def subscription_all(_=Depends(require_auth)):
@@ -406,7 +407,7 @@ async def sub_group_subscription(uuid_key: str, request: Request):
                 lines.extend(generate_vless_links(link, lid, host))
     content = base64.b64encode("\n".join(lines).encode()).decode()
     return Response(content=content, media_type="text/plain",
-        headers={"profile-title": quote(sub["name"]), "support-url": "https://t.me/VaslZone", "profile-update-interval": "12"})
+        headers={"profile-title": quote(sub["name"]), "support-url": "https://t.me/CBeeNet", "profile-update-interval": "12"})
 
 # ── Sub Groups (Admin) ────────────────────────────────────────────────────────
 @app.post("/api/subs")
@@ -622,10 +623,12 @@ async def create_link(request: Request):
     is_personal = bool(body.get("is_personal", False))
     sub_id = body.get("sub_id")
     
+    # دریافت پروتکل‌ها (لیست)
     protocols = body.get("protocols")
     if not protocols:
         proto = body.get("protocol", DEFAULT_PROTOCOL)
         protocols = [proto]
+    # اعتبارسنجی
     protocols = [p for p in protocols if p in PROTOCOLS]
     if not protocols:
         protocols = [DEFAULT_PROTOCOL]
@@ -664,21 +667,13 @@ async def create_links_bulk(request: Request):
     s = await require_reseller_auth(request)
     body = await request.json()
     
-    # Parse count safely – support multiple possible keys
-    count = 1
-    for key in ["count", "number", "quantity", "amount"]:
-        val = body.get(key)
-        if val is not None:
-            try:
-                count = int(val)
-                break
-            except (ValueError, TypeError):
-                continue
-    # Ensure at least 1 and at most 100
+    # Parse count safely
+    try:
+        count = int(body.get("count", 1))
+    except (ValueError, TypeError):
+        count = 1
     count = max(1, min(count, 100))
     
-    logger.info(f"Bulk creation requested: count={count}")
-
     base_label = (body.get("label") or "Bulk").strip()[:40]
     lv = float(body.get("limit_value") or 0)
     lu = body.get("limit_unit") or "GB"
@@ -698,7 +693,6 @@ async def create_links_bulk(request: Request):
     if not protocols:
         protocols = [DEFAULT_PROTOCOL]
 
-    # Reseller capacity check
     if s["role"] == "reseller":
         await check_reseller_capacity(s["user_id"], limit_bytes * count)
         is_personal = True
@@ -710,7 +704,9 @@ async def create_links_bulk(request: Request):
             ip_flags[ip] = await fetch_ip_flag(ip) if ip else ""
 
     created_uids = []
+    # Acquire LINKS_LOCK once for all creations to improve performance and avoid deadlocks
     async with LINKS_LOCK:
+        # Prepare sub object if needed
         sub_obj = None
         if sub_id:
             async with SUBS_LOCK:
@@ -728,20 +724,12 @@ async def create_links_bulk(request: Request):
             label = f"{base_label}-{i+1}" + (f" {flag}" if flag else "")
             uid = generate_uuid()
             link_data = {
-                "label": label,
-                "limit_bytes": limit_bytes,
-                "used_bytes": 0,
-                "created_at": datetime.now().isoformat(),
-                "active": True,
-                "expires_at": expires_at,
-                "note": "",
-                "is_default": False,
-                "sub_id": sub_id,
-                "protocols": protocols,
+                "label": label, "limit_bytes": limit_bytes, "used_bytes": 0,
+                "created_at": datetime.now().isoformat(), "active": True,
+                "expires_at": expires_at, "note": "", "is_default": False,
+                "sub_id": sub_id, "protocols": protocols,
                 "ips": [target_ip] if target_ip else [],
-                "port": port,
-                "is_personal": is_personal,
-                "creator_id": s["user_id"]
+                "port": port, "is_personal": is_personal, "creator_id": s["user_id"]
             }
             LINKS[uid] = link_data
             created_uids.append(uid)
@@ -764,13 +752,8 @@ async def create_links_bulk(request: Request):
                 if uuid_key:
                     sub_url = f"https://{host}/sub-group/{uuid_key}"
     
-    return {
-        "ok": True,
-        "count": count,
-        "created_uids": created_uids,
-        "sub_url": sub_url,
-        "vless_bulk": "\n".join(all_vless)
-    }
+    return {"ok": True, "count": count, "created_uids": created_uids,
+            "sub_url": sub_url, "vless_bulk": "\n".join(all_vless)}
 
 @app.get("/api/links")
 async def list_links(request: Request):
