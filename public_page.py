@@ -17,7 +17,7 @@ def get_sub_page_html(api_url: str, title: str, subtitle: str = "") -> str:
 * {{ margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }}
 :root {{
   --bg: #0b0a0f;
-  --surface: #14131c;
+  --surface: rgba(20, 19, 28, 0.6);
   --surface2: #1e1c2a;
   --surface3: #29263a;
   --border: rgba(255,255,255,0.06);
@@ -152,17 +152,24 @@ body {{
   transform: translateY(-2px);
 }}
 
-/* ===== INFO CARD (GLASS) ===== */
+/* ===== GLASS CARD ===== */
 .glass {{
-  background: rgba(20, 19, 28, 0.6);
+  background: var(--surface);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
 }}
+
+/* ===== INFO CARD ===== */
 .info-card {{
-  composes: glass;
+  background: var(--surface);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
   padding: 22px 24px;
   margin: 18px 0 16px;
   position: relative;
@@ -205,7 +212,7 @@ body {{
   line-height: 1.7;
 }}
 
-/* ===== STATS ROW (MINIMAL) ===== */
+/* ===== STATS ROW ===== */
 .stats {{
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -263,9 +270,14 @@ body {{
   50% {{ opacity:0.2; transform:scale(0.6); }}
 }}
 
-/* ===== COPY ALL BAR ===== */
+/* ===== COPY ALL BAR (در بالای لیست کانفیگ‌ها) ===== */
 .copy-all {{
-  composes: glass;
+  background: var(--surface);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
   padding: 14px 20px;
   margin-bottom: 18px;
   display: flex;
@@ -327,7 +339,12 @@ body {{
 .section-header i {{ color: var(--primary-light); font-size: 18px; }}
 
 .config-item {{
-  composes: glass;
+  background: var(--surface);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
   margin-bottom: 14px;
   overflow: hidden;
   border-color: var(--border);
@@ -629,8 +646,15 @@ function esc(s) {{
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
   }})[c]);
 }}
-function protoLabel(p) {{
-  return p && p.includes("xhttp") ? "XHTTP" : "VLESS+WS";
+function protoLabel(protocols) {{
+  if (!protocols || !protocols.length) return '<span class="config-badge-proto">VLESS+WS</span>';
+  const labels = {{
+    'vless-ws': 'VLESS+WS',
+    'xhttp-packet-up': 'XHTTP',
+    'xhttp-stream-up': 'XHTTP',
+    'xhttp-stream-one': 'XHTTP ULTRA'
+  }};
+  return protocols.map(p => `<span class="config-badge-proto">${labels[p] || 'VLESS+WS'}</span>`).join('');
 }}
 
 // ===== PARTICLES =====
@@ -670,7 +694,7 @@ function render(d) {{
     return;
   }}
   allLinks = d.links;
-  // precompute lines
+  // precompute lines (split by newline)
   d.links.forEach(l => l._lines = l.vless_link ? l.vless_link.split("\\n").filter(x => x) : []);
 
   const active = d.links.filter(l => l.active).length;
@@ -704,19 +728,23 @@ function render(d) {{
     </div>
   </div>`;
 
-  // Copy all (if more than one)
-  if (d.links.length > 1) {{
+  // ===== COPY ALL BAR (بالای لیست کانفیگ‌ها) =====
+  if (d.links.length > 0) {{
+    const allVlessLinks = d.links.map(l => l.vless_link || '').filter(x => x);
+    const count = allVlessLinks.length;
     html += `<div class="copy-all">
       <div class="copy-all-text">
-        <div class="copy-all-title"><i class="ti ti-copy"></i> کپی همه</div>
-        <div class="copy-all-sub">یکبار کلیک</div>
+        <div class="copy-all-title"><i class="ti ti-copy"></i> کپی همه کانفیگ‌ها</div>
+        <div class="copy-all-sub">${count} لینک · با یک کلیک</div>
       </div>
-      <button class="btn-copy-all" onclick="copyAll()"><i class="ti ti-clipboard-copy"></i> کپی (${active})</button>
+      <button class="btn-copy-all" onclick="copyAll()"><i class="ti ti-clipboard-copy"></i> کپی همه (${count})</button>
     </div>`;
   }}
 
-  // Config list
-  html += `<div class="section-header"><i class="ti ti-link"></i> کانفیگ‌ها</div>`;
+  // Config list header
+  html += `<div class="section-header"><i class="ti ti-link"></i> کانفیگ‌ها (${d.links.length})</div>`;
+
+  // Config items
   for (let i = 0; i < d.links.length; i++) {{
     const l = d.links[i];
     const pct = l.limit_bytes > 0 ? Math.min(100, (l.used_bytes / l.limit_bytes) * 100) : 0;
@@ -726,12 +754,13 @@ function render(d) {{
     const statusClass = l.active ? 'on' : 'off';
     const statusIcon = l.active ? 'circle-check' : 'circle-x';
     const statusText = l.active ? 'فعال' : 'غیرفعال';
+    const protoBadges = l.protocols ? protoLabel(l.protocols) : '<span class="config-badge-proto">VLESS+WS</span>';
 
     html += `<div class="config-item">
       <div class="config-header" onclick="toggleBody(this)">
         <div class="config-label">
           <span>${esc(l.label)}</span>
-          <span class="config-badge-proto">${protoLabel(l.protocol)}</span>
+          ${protoBadges}
         </div>
         <span class="config-status ${statusClass}"><i class="ti ti-${statusIcon}"></i> ${statusText}</span>
         <span class="config-toggle"><i class="ti ti-chevron-down"></i></span>
@@ -777,10 +806,14 @@ function copyText(t) {{
   }});
 }}
 function copyAll() {{
+  // گرفتن همه لینک‌های vless از allLinks (که در render ذخیره شده)
   const all = allLinks.map(l => l.vless_link || '').filter(x => x).join('\\n');
-  if (!all) return;
+  if (!all) {{
+    showToast('❌ لینکی برای کپی نیست', '');
+    return;
+  }}
   navigator.clipboard.writeText(all).then(() => {{
-    showToast('✅ همه کپی شد', 'success');
+    showToast('✅ همه ' + allLinks.length + ' کانفیگ کپی شد', 'success');
   }});
 }}
 function showToast(msg, type = '') {{
